@@ -100,6 +100,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  p->is_thread = 0; //set flag for is_thread
 }
 
 // Grow current process's memory by n bytes.
@@ -165,6 +166,55 @@ fork(void)
   
   return pid;
 }
+
+int
+clone(void(*fcn)(void*), void *arg, void *stack)
+{
+  int i, pid;
+  struct proc *np;
+
+  // Allocate process.
+  if((np = allocproc()) == 0)
+    return -1;
+
+  np -> pgdir = proc -> pgdir;
+  np->sz = proc->sz;
+  np->parent = proc;
+  *np->tf = *proc->tf;
+  np->is_thread = 1; //set flag for is_thread
+
+  // Clear %eax so that fork returns 0 in the child.
+  np->tf->eax = 0;
+
+  for(i = 0; i < NOFILE; i++)
+    if(proc->ofile[i])
+      np->ofile[i] = filedup(proc->ofile[i]);
+  np->cwd = idup(proc->cwd);
+
+  safestrcpy(np->name, proc->name, sizeof(proc->name));
+ 
+  pid = np->pid;
+
+  //temporary array to copy into the bottom of new stack for the thread
+  uint ustack[2];
+  uint sp = (uint)stack+PGSIZE;
+  ustack[0] = 0xffffffff; //fake return PC
+  ustack[1] = (uint)arg;
+
+  sp -= 8; //stack grows down in 8 byte increments
+  if (copyout(np->pgdir, sp, ustack, 8) < 0){
+    //failed copying bottom of stack
+    return -1;
+  }
+  np -> tf -> eip = (uint)fcn;
+  np -> tf -> esp = sp;
+  switchuvm(np);
+  np -> state = RUNNABLE;
+  
+  return pid;
+}
+
+
 
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
