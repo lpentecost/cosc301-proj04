@@ -93,21 +93,23 @@ sys_uptime(void)
 int
 sys_clone(void){
     //retrieve arguments
-    void *fcn;
-    void *arg;
-    void *stack;
+    int fcn;
+    int arg;
+    int stack;
     
-    if (argptr(0, (char**)&fcn, 4)<0){
+    if (argint(0, &fcn)<0){
         return -1;
     } 
-    if (argptr(1, (char**)&arg, 4)<0){
+    if (argint(1, &arg)<0){
         return -1;
     }
-    if (argptr(2, (char**)&stack, PGSIZE)<0){
+    if (argint(2, &stack)<0){
         return -1;
     }
-    
-    return clone(fcn, arg, stack);
+    if(stack % PGSIZE != 0){ //page aligned stack?
+        return -1;
+    }
+    return clone((void(*)(void*))fcn, (void *)arg, (void *)stack);
 }
 
 int 

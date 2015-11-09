@@ -146,6 +146,7 @@ fork(void)
   np->sz = proc->sz;
   np->parent = proc;
   *np->tf = *proc->tf;
+  np->is_thread = 0;
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -216,7 +217,75 @@ clone(void(*fcn)(void*), void *arg, void *stack)
 
 int
 join(int pid){
-    return 0;
+  struct proc *p;
+  int havekids;
+  struct proc *thread = 0;
+
+  acquire(&ptable.lock);
+ 
+  if (pid == -1){
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent != proc || p->is_thread == 0)
+        continue;
+      havekids = 1;
+      if(p->state == ZOMBIE){
+        // Found one.
+        pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->state = UNUSED;
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        release(&ptable.lock);
+        return pid;
+      }
+    }
+  }
+
+  for(;;){
+    for (p = ptable.proc; p< &ptable.proc[NPROC]; p++){
+      if (p->pid == pid){
+        if(p->is_thread == 0){
+          return -1; //can't call on a parent
+        }
+        if (p->parent->pid != proc->pid){
+          return -1; //can't kidnap
+        }
+        thread = p;
+        break; //found child thread?
+      }
+    }
+    if (thread == 0){
+        return -1;
+    }
+    havekids = 1;
+    if(p->state == ZOMBIE){
+      // Found one.
+      pid = p->pid;
+      kfree(p->kstack);
+      p->kstack = 0;
+      freevm(p->pgdir);
+      p->state = UNUSED;
+      p->pid = 0;
+      p->parent = 0;
+      p->name[0] = 0;
+      p->killed = 0;
+      release(&ptable.lock);
+      return pid;
+    }
+    // No point waiting if we don't have any children.
+    if(!havekids || proc->killed){
+     release(&ptable.lock);
+     return -1;
+    }
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(proc, &ptable.lock);  //DOC: wait-sleep
+  }
+  return -1;
 }
 
 // Exit the current process.  Does not return.
