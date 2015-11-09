@@ -214,7 +214,10 @@ clone(void(*fcn)(void*), void *arg, void *stack)
   return pid;
 }
 
-
+int
+join(int pid){
+    return 0;
+}
 
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state

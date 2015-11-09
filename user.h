@@ -38,10 +38,14 @@ void* malloc(uint);
 void free(void*);
 int atoi(const char*);
 
-//uthread and lcok_t definitions
+//uthread and lock_t definitions
 int thread_create(void (*start_routine)(void*), void *arg);
 int thread_join(int pid);
 
 void lock_acquire(lock_t *);
 void lock_release(lock_t *);
 void lock_init(lock_t *);
+
+
+int clone(void(*fcn)(void*), void *arg, void *stack);
+int join(int pid);
