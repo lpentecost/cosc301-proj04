@@ -348,6 +348,9 @@ wait(void)
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->parent != proc)
         continue;
+      if (p->is_thread == 1){ //need separate loop to check for child threads?
+        return -1;
+      }
       havekids = 1;
       if(p->state == ZOMBIE){
         // Found one.
