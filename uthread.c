@@ -8,6 +8,8 @@
  * This is where you'll need to implement the user-level functions
  */
 
+//void *current_stack;
+
 void lock_init(lock_t *lock) {
     lock -> locked = 0;
     //lock -> cpu = 0;
@@ -34,9 +36,12 @@ void lock_release(lock_t *lock) {
 }
 
 int thread_join(int pid) {
-    return -1;
+    int retval = join(pid);
+    free(stack);
+    return retval;
 }
 
 int thread_create(void (*start_routine)(void *), void *arg) {
-    return -1;
+    void *stack = malloc(PGSIZE); //PGSIZE*sizeof(uint)??
+    return clone(void (*start_routine)(void *), arg, stack);
 }

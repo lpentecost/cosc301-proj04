@@ -103,6 +103,23 @@ userinit(void)
   p->is_thread = 0; //set flag for is_thread
 }
 
+//helper function to update sz of all related threads when calling growproc
+void
+updatesz(struct proc *pin, uint size){
+  struct proc *p;
+
+  if(pin->is_thread ==1){
+    pin = pin->parent;
+    pin->sz = size;
+  }
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->parent == pin && p->is_thread == 1){
+        p->sz = size;
+    }
+  }
+  return;
+}
+
 // Grow current process's memory by n bytes.
 // Return 0 on success, -1 on failure.
 int
@@ -110,6 +127,7 @@ growproc(int n)
 {
   uint sz;
   
+  //acquire(&ptable.lock);
   sz = proc->sz;
   if(n > 0){
     if((sz = allocuvm(proc->pgdir, sz, sz + n)) == 0)
@@ -119,7 +137,10 @@ growproc(int n)
       return -1;
   }
   proc->sz = sz;
+  updatesz(proc,sz);
   switchuvm(proc);
+  //release(&ptable.lock);
+
   return 0;
 }
 
@@ -196,6 +217,7 @@ clone(void(*fcn)(void*), void *arg, void *stack)
  
   pid = np->pid;
 
+  //acquire(&ptable.lock);
   //temporary array to copy into the bottom of new stack for the thread
   uint ustack[2];
   uint sp = (uint)stack+PGSIZE;
@@ -205,13 +227,15 @@ clone(void(*fcn)(void*), void *arg, void *stack)
   sp -= 8; //stack grows down in 8 byte increments
   if (copyout(np->pgdir, sp, ustack, 8) < 0){
     //failed copying bottom of stack
+    release(&ptable.lock);
     return -1;
   }
   np -> tf -> eip = (uint)fcn;
   np -> tf -> esp = sp;
   switchuvm(np);
   np -> state = RUNNABLE;
-  
+  //release(&ptable.lock);
+
   return pid;
 }
 
@@ -320,7 +344,14 @@ exit(void)
 
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->parent == proc){
+    if(p->parent == proc){ //identify a child
+      if(p->is_thread == 1){
+        p->killed = 1;
+        if (p->state ==SLEEPING){
+            p->state = RUNNABLE;
+        }
+        join(p->pid);
+      }
       p->parent = initproc;
       if(p->state == ZOMBIE)
         wakeup1(initproc);
@@ -340,6 +371,7 @@ wait(void)
 {
   struct proc *p;
   int havekids, pid;
+  struct proc *thread;
 
   acquire(&ptable.lock);
   for(;;){
@@ -354,6 +386,12 @@ wait(void)
       havekids = 1;
       if(p->state == ZOMBIE){
         // Found one.
+        //check if we have any threads for this process before clearing space!
+        for (thread = ptable.proc; thread<&ptable.proc[NPROC]; p++){
+            if (thread->is_thread == 1 && thread ->parent == p){
+                return -1; //can't free address space if thread still exists
+            }
+        }
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
