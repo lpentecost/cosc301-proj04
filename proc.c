@@ -10,6 +10,8 @@
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
+  //add another lock here, init in pinit, and use in growproc
+  struct spinlock growlock;
 } ptable;
 
 static struct proc *initproc;
@@ -24,6 +26,7 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
+  initlock(&ptable.growlock, "growproclock");
 }
 
 //PAGEBREAK: 32
@@ -127,7 +130,7 @@ growproc(int n)
 {
   uint sz;
   
-  //acquire(&ptable.lock);
+  acquire(&ptable.growlock) ;
   sz = proc->sz;
   if(n > 0){
     if((sz = allocuvm(proc->pgdir, sz, sz + n)) == 0)
@@ -138,8 +141,8 @@ growproc(int n)
   }
   proc->sz = sz;
   updatesz(proc,sz);
+  release(&ptable.growlock);
   switchuvm(proc);
-  //release(&ptable.lock);
 
   return 0;
 }
@@ -217,7 +220,6 @@ clone(void(*fcn)(void*), void *arg, void *stack)
  
   pid = np->pid;
 
-  //acquire(&ptable.lock);
   //temporary array to copy into the bottom of new stack for the thread
   uint ustack[2];
   uint sp = (uint)stack+PGSIZE;
@@ -234,7 +236,6 @@ clone(void(*fcn)(void*), void *arg, void *stack)
   np -> tf -> esp = sp;
   switchuvm(np);
   np -> state = RUNNABLE;
-  //release(&ptable.lock);
 
   return pid;
 }
@@ -309,7 +310,7 @@ join(int pid){
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(proc, &ptable.lock);  //DOC: wait-sleep
   }
-  return -1;
+  //return -1;
 }
 
 // Exit the current process.  Does not return.
