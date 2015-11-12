@@ -229,7 +229,7 @@ clone(void(*fcn)(void*), void *arg, void *stack)
   sp -= 8; //stack grows down in 8 byte increments
   if (copyout(np->pgdir, sp, ustack, 8) < 0){
     //failed copying bottom of stack
-    release(&ptable.lock);
+    //release(&ptable.lock);
     return -1;
   }
   np -> tf -> eip = (uint)fcn;
@@ -245,9 +245,9 @@ join(int pid){
   struct proc *p;
   int havekids;
   struct proc *thread = 0;
-
-  acquire(&ptable.lock);
  
+  //acquire(&ptable.lock);
+
   if (pid == -1){
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -259,13 +259,13 @@ join(int pid){
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        freevm(p->pgdir);
+        //freevm(p->pgdir); //can we still do this??
         p->state = UNUSED;
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
-        release(&ptable.lock);
+        //release(&ptable.lock);
         return pid;
       }
     }
@@ -293,18 +293,18 @@ join(int pid){
       pid = p->pid;
       kfree(p->kstack);
       p->kstack = 0;
-      freevm(p->pgdir);
+      //freevm(p->pgdir);
       p->state = UNUSED;
       p->pid = 0;
       p->parent = 0;
       p->name[0] = 0;
       p->killed = 0;
-      release(&ptable.lock);
+      //release(&ptable.lock);
       return pid;
     }
     // No point waiting if we don't have any children.
     if(!havekids || proc->killed){
-     release(&ptable.lock);
+     //release(&ptable.lock);
      return -1;
     }
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
@@ -343,16 +343,28 @@ exit(void)
   // Parent might be sleeping in wait().
   wakeup1(proc->parent);
 
+  //separate loop to deal with child threads
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->parent == proc && p->is_thread == 1){ //identify a child thread
+      p->killed = 1;
+      if (p->state ==SLEEPING){
+          p->state = RUNNABLE;
+      }
+      join(p->pid);
+    }
+  } 
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->parent == proc && p->is_thread == 1){ //identify a child thread, join
+      join(p->pid);
+    }
+  } 
+
+
+
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){ //identify a child
-      if(p->is_thread == 1){
-        p->killed = 1;
-        if (p->state ==SLEEPING){
-            p->state = RUNNABLE;
-        }
-        join(p->pid);
-      }
       p->parent = initproc;
       if(p->state == ZOMBIE)
         wakeup1(initproc);
@@ -376,45 +388,45 @@ wait(void)
 
   acquire(&ptable.lock);
   for(;;){
-    // Scan through table looking for zombie children.
-    havekids = 0;
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->parent != proc)
-        continue;
-      if (p->is_thread == 1){ //need separate loop to check for child threads?
-        return -1;
-      }
-      havekids = 1;
-      if(p->state == ZOMBIE){
-        // Found one.
-        //check if we have any threads for this process before clearing space!
-        for (thread = ptable.proc; thread<&ptable.proc[NPROC]; p++){
+      // Scan through table looking for zombie children.
+      havekids = 0;
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->parent != proc)
+          continue;
+        if (p->is_thread == 1){ //need separate loop to check for child threads?
+          return -1;
+        }
+        havekids = 1;
+        if(p->state == ZOMBIE){
+          // Found one.
+          //check if we have any threads for this process before clearing space!
+          for (thread = ptable.proc; thread<&ptable.proc[NPROC]; p++){
             if (thread->is_thread == 1 && thread ->parent == p){
                 return -1; //can't free address space if thread still exists
             }
+          }
+          pid = p->pid;
+          kfree(p->kstack);
+          p->kstack = 0;
+          freevm(p->pgdir);
+          p->state = UNUSED;
+          p->pid = 0;
+          p->parent = 0;
+          p->name[0] = 0;
+          p->killed = 0;
+          release(&ptable.lock);
+          return pid;
         }
-        pid = p->pid;
-        kfree(p->kstack);
-        p->kstack = 0;
-        freevm(p->pgdir);
-        p->state = UNUSED;
-        p->pid = 0;
-        p->parent = 0;
-        p->name[0] = 0;
-        p->killed = 0;
-        release(&ptable.lock);
-        return pid;
       }
-    }
 
-    // No point waiting if we don't have any children.
-    if(!havekids || proc->killed){
-      release(&ptable.lock);
-      return -1;
-    }
+      // No point waiting if we don't have any children.
+      if(!havekids || proc->killed){
+        release(&ptable.lock);
+        return -1;
+      }
 
-    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
-    sleep(proc, &ptable.lock);  //DOC: wait-sleep
+      // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+      sleep(proc, &ptable.lock);  //DOC: wait-sleep
   }
 }
 
