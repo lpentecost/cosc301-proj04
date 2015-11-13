@@ -204,7 +204,11 @@ clone(void(*fcn)(void*), void *arg, void *stack)
 
   np -> pgdir = proc -> pgdir;
   np->sz = proc->sz;
-  np->parent = proc;
+  if (proc->is_thread == 1){
+    np->parent = proc->parent;
+  } else{
+    np->parent = proc;
+  }
   *np->tf = *proc->tf;
   np->is_thread = 1; //set flag for is_thread
 
@@ -229,7 +233,6 @@ clone(void(*fcn)(void*), void *arg, void *stack)
   sp -= 8; //stack grows down in 8 byte increments
   if (copyout(np->pgdir, sp, ustack, 8) < 0){
     //failed copying bottom of stack
-    //release(&ptable.lock);
     return -1;
   }
   np -> tf -> eip = (uint)fcn;
@@ -245,66 +248,68 @@ join(int pid){
   struct proc *p;
   int havekids;
   struct proc *thread = 0;
- 
-  //acquire(&ptable.lock);
 
-  if (pid == -1){
-    havekids = 0;
+  if(proc->is_thread == 1){
+    return -1;
+  }
+
+  acquire(&ptable.lock);
+
+  if (pid != -1){
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->parent != proc || p->is_thread == 0)
-        continue;
-      havekids = 1;
-      if(p->state == ZOMBIE){
-        // Found one.
-        pid = p->pid;
-        kfree(p->kstack);
-        p->kstack = 0;
-        //freevm(p->pgdir); //can we still do this??
-        p->state = UNUSED;
-        p->pid = 0;
-        p->parent = 0;
-        p->name[0] = 0;
-        p->killed = 0;
-        //release(&ptable.lock);
-        return pid;
+      if(p->parent == proc && p->is_thread == 1){ //check if child thread
+        if (p->parent->pid == proc->pid){ //check that we aren't kidnapping!
+            thread = p;
+        }
+      }
+      if (thread != 0){
+        break;
       }
     }
   }
 
   for(;;){
+    havekids = 0;
     for (p = ptable.proc; p< &ptable.proc[NPROC]; p++){
-      if (p->pid == pid){
-        if(p->is_thread == 0){
-          return -1; //can't call on a parent
+      if (pid == -1){
+        if (p->is_thread == 1 && p->parent == proc){
+          havekids = 1;
+          if(p->state == ZOMBIE){
+            // Found one.
+            pid = p->pid;
+            kfree(p->kstack);
+            p->kstack = 0;
+            //freevm(p->pgdir);
+            p->state = UNUSED;
+            p->pid = 0;
+            p->parent = 0;
+            p->name[0] = 0;
+            p->killed = 0;
+            release(&ptable.lock);
+            return pid;
+          }
         }
-        if (p->parent->pid != proc->pid){
-          return -1; //can't kidnap
+      }else if(thread != 0 && p == thread){
+        havekids = 1;
+        if(p->state == ZOMBIE){
+            // Found one.
+            pid = p->pid;
+            kfree(p->kstack);
+            p->kstack = 0;
+            //freevm(p->pgdir);
+            p->state = UNUSED;
+            p->pid = 0;
+            p->parent = 0;
+            p->name[0] = 0;
+            p->killed = 0;
+            release(&ptable.lock);
+            return pid;
         }
-        thread = p;
-        break; //found child thread?
       }
-    }
-    if (thread == 0){
-        return -1;
-    }
-    havekids = 1;
-    if(p->state == ZOMBIE){
-      // Found one.
-      pid = p->pid;
-      kfree(p->kstack);
-      p->kstack = 0;
-      //freevm(p->pgdir);
-      p->state = UNUSED;
-      p->pid = 0;
-      p->parent = 0;
-      p->name[0] = 0;
-      p->killed = 0;
-      //release(&ptable.lock);
-      return pid;
     }
     // No point waiting if we don't have any children.
     if(!havekids || proc->killed){
-     //release(&ptable.lock);
+     release(&ptable.lock);
      return -1;
     }
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
@@ -355,7 +360,9 @@ exit(void)
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc && p->is_thread == 1){ //identify a child thread, join
+      release(&ptable.lock);
       join(p->pid);
+      acquire(&ptable.lock);
     }
   } 
 
@@ -369,7 +376,7 @@ exit(void)
         wakeup1(initproc);
     }
   }
-
+    
   // Jump into the scheduler, never to return.
   proc->state = ZOMBIE;
   sched();
@@ -393,7 +400,7 @@ wait(void)
         if(p->parent != proc)
           continue;
         if (p->is_thread == 1){ //need separate loop to check for child threads?
-          return -1;
+          continue;
         }
         havekids = 1;
         if(p->state == ZOMBIE){
@@ -401,6 +408,7 @@ wait(void)
           //check if we have any threads for this process before clearing space!
           for (thread = ptable.proc; thread<&ptable.proc[NPROC]; p++){
             if (thread->is_thread == 1 && thread ->parent == p){
+                //join(thread->pid);
                 return -1; //can't free address space if thread still exists
             }
           }

@@ -109,6 +109,9 @@ sys_clone(void){
     if(stack % PGSIZE != 0){ //page aligned stack?
         return -1;
     }
+    if (stack == 0 || fcn == 0){
+        return -1;
+    }
     return clone((void(*)(void*))fcn, (void *)arg, (void *)stack);
 }
 
