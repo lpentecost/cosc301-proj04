@@ -350,7 +350,6 @@ exit(void)
       if (p->state ==SLEEPING){
           p->state = RUNNABLE;
       }
-      join(p->pid);
     }
   } 
 
