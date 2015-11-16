@@ -255,7 +255,7 @@ join(int pid){
 
   acquire(&ptable.lock);
 
-  if (pid != -1){
+  if (pid != -1){  // find specific thread
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->parent == proc && p->is_thread == 1){ //check if child thread
         if (p->parent->pid == proc->pid){ //check that we aren't kidnapping!
@@ -390,7 +390,7 @@ wait(void)
 {
   struct proc *p;
   int havekids, pid;
-  struct proc *thread;
+//  struct proc *thread;
 
   acquire(&ptable.lock);
   for(;;){
@@ -406,12 +406,19 @@ wait(void)
         if(p->state == ZOMBIE){
           // Found one.
           //check if we have any threads for this process before clearing space!
-          for (thread = ptable.proc; thread<&ptable.proc[NPROC]; p++){
+
+
+/**
+Dearest Lilliest, Our mistake lies in this cute little for loop we wrote together. For starters we were incrementing p, not thread which was severely screwing with our outer loop through p. 
+Secondly, we don't need this loop at all because if a parent process dies then the child process is assumed to be set to ZOMBIE already. 
+We deal with this in exit line 381. Much love and happiness. I hope you're enjoying all of the short lines to the ladies room. CATZ CATZ CATZ
+          for (thread = ptable.proc; thread<&ptable.proc[NPROC]; p++){ // we were incrementing p
             if (thread->is_thread == 1 && thread ->parent == p){
                 //join(thread->pid);
                 return -1; //can't free address space if thread still exists
             }
           }
+ **/ 
           pid = p->pid;
           kfree(p->kstack);
           p->kstack = 0;
